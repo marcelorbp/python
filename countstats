@@ -3,10 +3,11 @@ import ast
 import csv
 
 def analyze_file(filepath, ignore_comments=True):
-    """Analyze a single Python file for defs, asserts, and LOC."""
+    """Analyze a single Python file for defs, asserts, LOC, and characters."""
     func_count = 0
     assert_count = 0
     loc_count = 0
+    char_count = 0
 
     try:
         with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
@@ -20,34 +21,36 @@ def analyze_file(filepath, ignore_comments=True):
             elif isinstance(node, ast.Assert):
                 assert_count += 1
 
-        # --- Line counting ---
+        # --- Line + Character counting ---
         for line in source.splitlines():
             stripped = line.strip()
-            if not stripped:  # skip empty
+            if not stripped:  # skip empty lines
                 continue
             if ignore_comments and stripped.startswith("#"):  # skip comments
                 continue
             loc_count += 1
+            char_count += len(line)  # count all characters on that line
 
     except SyntaxError:
         print(f"⚠️ Skipping file with syntax error: {filepath}")
 
-    return func_count, assert_count, loc_count
+    return func_count, assert_count, loc_count, char_count
 
 
 def analyze_codebase(root_dir, ignore_comments=True):
-    totals = {"funcs": 0, "asserts": 0, "loc": 0}
+    totals = {"funcs": 0, "asserts": 0, "loc": 0, "chars": 0}
     per_file = []
 
     for subdir, _, files in os.walk(root_dir):
         for file in files:
             if file.endswith(".py"):
                 filepath = os.path.join(subdir, file)
-                funcs, asserts, loc = analyze_file(filepath, ignore_comments)
+                funcs, asserts, loc, chars = analyze_file(filepath, ignore_comments)
                 totals["funcs"] += funcs
                 totals["asserts"] += asserts
                 totals["loc"] += loc
-                per_file.append((filepath, funcs, asserts, loc))
+                totals["chars"] += chars
+                per_file.append((filepath, funcs, asserts, loc, chars))
 
     return per_file, totals
 
@@ -56,14 +59,14 @@ def export_to_csv(per_file, totals, output_path="code_report.csv"):
     """Export the results to a CSV file with percentage contribution per file."""
     with open(output_path, "w", newline="", encoding="utf-8") as csvfile:
         writer = csv.writer(csvfile)
-        writer.writerow(["File", "Functions", "Asserts", "LOC", "% LOC of Total"])
+        writer.writerow(["File", "Functions", "Asserts", "LOC", "Characters", "% LOC of Total"])
 
-        for filepath, funcs, asserts, loc in per_file:
+        for filepath, funcs, asserts, loc, chars in per_file:
             percent_loc = (loc / totals["loc"] * 100) if totals["loc"] > 0 else 0
-            writer.writerow([filepath, funcs, asserts, loc, f"{percent_loc:.2f}%"])
+            writer.writerow([filepath, funcs, asserts, loc, chars, f"{percent_loc:.2f}%"])
 
         writer.writerow([])  # blank row
-        writer.writerow(["TOTAL", totals["funcs"], totals["asserts"], totals["loc"], "100.00%"])
+        writer.writerow(["TOTAL", totals["funcs"], totals["asserts"], totals["loc"], totals["chars"], "100.00%"])
 
 
 if __name__ == "__main__":
@@ -71,14 +74,16 @@ if __name__ == "__main__":
     per_file, totals = analyze_codebase(root, ignore_comments=True)
 
     print("\n📊 Per-file breakdown:")
-    for filepath, funcs, asserts, loc in per_file:
+    for filepath, funcs, asserts, loc, chars in per_file:
         percent_loc = (loc / totals["loc"] * 100) if totals["loc"] > 0 else 0
-        print(f"{filepath}: funcs={funcs}, asserts={asserts}, loc={loc} ({percent_loc:.2f}% of total LOC)")
+        print(f"{filepath}: funcs={funcs}, asserts={asserts}, loc={loc}, chars={chars} "
+              f"({percent_loc:.2f}% of total LOC)")
 
     print("\n✅ Overall totals:")
-    print(f"Functions: {totals['funcs']}")
-    print(f"Asserts:   {totals['asserts']}")
-    print(f"LOC:       {totals['loc']}")
+    print(f"Functions:  {totals['funcs']}")
+    print(f"Asserts:    {totals['asserts']}")
+    print(f"LOC:        {totals['loc']}")
+    print(f"Characters: {totals['chars']}")
 
     # Export results to CSV
     export_to_csv(per_file, totals, output_path="code_report.csv")
