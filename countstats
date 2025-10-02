@@ -1,0 +1,85 @@
+import os
+import ast
+import csv
+
+def analyze_file(filepath, ignore_comments=True):
+    """Analyze a single Python file for defs, asserts, and LOC."""
+    func_count = 0
+    assert_count = 0
+    loc_count = 0
+
+    try:
+        with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
+            source = f.read()
+
+        # --- AST parsing for defs & asserts ---
+        tree = ast.parse(source, filename=filepath)
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                func_count += 1
+            elif isinstance(node, ast.Assert):
+                assert_count += 1
+
+        # --- Line counting ---
+        for line in source.splitlines():
+            stripped = line.strip()
+            if not stripped:  # skip empty
+                continue
+            if ignore_comments and stripped.startswith("#"):  # skip comments
+                continue
+            loc_count += 1
+
+    except SyntaxError:
+        print(f"⚠️ Skipping file with syntax error: {filepath}")
+
+    return func_count, assert_count, loc_count
+
+
+def analyze_codebase(root_dir, ignore_comments=True):
+    totals = {"funcs": 0, "asserts": 0, "loc": 0}
+    per_file = []
+
+    for subdir, _, files in os.walk(root_dir):
+        for file in files:
+            if file.endswith(".py"):
+                filepath = os.path.join(subdir, file)
+                funcs, asserts, loc = analyze_file(filepath, ignore_comments)
+                totals["funcs"] += funcs
+                totals["asserts"] += asserts
+                totals["loc"] += loc
+                per_file.append((filepath, funcs, asserts, loc))
+
+    return per_file, totals
+
+
+def export_to_csv(per_file, totals, output_path="code_report.csv"):
+    """Export the results to a CSV file with percentage contribution per file."""
+    with open(output_path, "w", newline="", encoding="utf-8") as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(["File", "Functions", "Asserts", "LOC", "% LOC of Total"])
+
+        for filepath, funcs, asserts, loc in per_file:
+            percent_loc = (loc / totals["loc"] * 100) if totals["loc"] > 0 else 0
+            writer.writerow([filepath, funcs, asserts, loc, f"{percent_loc:.2f}%"])
+
+        writer.writerow([])  # blank row
+        writer.writerow(["TOTAL", totals["funcs"], totals["asserts"], totals["loc"], "100.00%"])
+
+
+if __name__ == "__main__":
+    root = r"C:\testing"  # <-- Change this path to your project root
+    per_file, totals = analyze_codebase(root, ignore_comments=True)
+
+    print("\n📊 Per-file breakdown:")
+    for filepath, funcs, asserts, loc in per_file:
+        percent_loc = (loc / totals["loc"] * 100) if totals["loc"] > 0 else 0
+        print(f"{filepath}: funcs={funcs}, asserts={asserts}, loc={loc} ({percent_loc:.2f}% of total LOC)")
+
+    print("\n✅ Overall totals:")
+    print(f"Functions: {totals['funcs']}")
+    print(f"Asserts:   {totals['asserts']}")
+    print(f"LOC:       {totals['loc']}")
+
+    # Export results to CSV
+    export_to_csv(per_file, totals, output_path="code_report.csv")
+    print("\n📂 Report saved to code_report.csv")
